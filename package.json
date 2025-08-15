@@ -1,0 +1,19 @@
+{
+  "name": "peloton-iq",
+  "version": "1.0.0",
+  "description": "PelotonIQ - Intelligent fitness tracking and analytics",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "test": "jest"
+  },
+  "keywords": ["fitness", "peloton", "analytics", "tracking"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {},
+  "devDependencies": {
+    "nodemon": "^3.0.0",
+    "jest": "^29.0.0"
+  }
+}
