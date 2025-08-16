@@ -1,0 +1,12 @@
+/Users/vardy/Documents/GithubCode/PelotonIQ/src/main/java/com/pelotoniq/cycling/entity/RaceType.java
+/Users/vardy/Documents/GithubCode/PelotonIQ/src/main/java/com/pelotoniq/cycling/entity/Race.java
+/Users/vardy/Documents/GithubCode/PelotonIQ/src/main/java/com/pelotoniq/cycling/entity/RaceStatus.java
+/Users/vardy/Documents/GithubCode/PelotonIQ/src/main/java/com/pelotoniq/cycling/entity/RiderSpecialization.java
+/Users/vardy/Documents/GithubCode/PelotonIQ/src/main/java/com/pelotoniq/cycling/repository/RiderRepository.java
+/Users/vardy/Documents/GithubCode/PelotonIQ/src/main/java/com/pelotoniq/cycling/config/SecurityConfig.java
+/Users/vardy/Documents/GithubCode/PelotonIQ/src/main/java/com/pelotoniq/cycling/controller/RaceController.java
+/Users/vardy/Documents/GithubCode/PelotonIQ/src/main/java/com/pelotoniq/cycling/controller/RiderController.java
+/Users/vardy/Documents/GithubCode/PelotonIQ/src/main/java/com/pelotoniq/cycling/repository/RaceRepository.java
+/Users/vardy/Documents/GithubCode/PelotonIQ/src/main/java/com/pelotoniq/cycling/entity/Rider.java
+/Users/vardy/Documents/GithubCode/PelotonIQ/src/main/java/com/pelotoniq/cycling/CyclingApiApplication.java
+/Users/vardy/Documents/GithubCode/PelotonIQ/src/main/java/com/pelotoniq/cycling/entity/RaceCategory.java

@@ -1,0 +1,12 @@
+com/pelotoniq/cycling/entity/RaceCategory.class
+com/pelotoniq/cycling/controller/RiderController.class
+com/pelotoniq/cycling/repository/RaceRepository.class
+com/pelotoniq/cycling/CyclingApiApplication.class
+com/pelotoniq/cycling/entity/RiderSpecialization.class
+com/pelotoniq/cycling/controller/RaceController.class
+com/pelotoniq/cycling/entity/Race.class
+com/pelotoniq/cycling/repository/RiderRepository.class
+com/pelotoniq/cycling/entity/Rider.class
+com/pelotoniq/cycling/config/SecurityConfig.class
+com/pelotoniq/cycling/entity/RaceType.class
+com/pelotoniq/cycling/entity/RaceStatus.class

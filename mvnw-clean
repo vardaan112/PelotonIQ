@@ -1,0 +1,3 @@
+#!/bin/bash
+# Clean Maven wrapper to suppress Java warnings
+mvn "$@" 2>/dev/null

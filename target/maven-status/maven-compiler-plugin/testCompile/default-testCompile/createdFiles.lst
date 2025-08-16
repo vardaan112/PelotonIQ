@@ -1,0 +1,4 @@
+com/pelotoniq/cycling/repository/RiderRepositoryTest.class
+com/pelotoniq/cycling/controller/RiderControllerTest.class
+com/pelotoniq/cycling/repository/RaceRepositoryTest.class
+com/pelotoniq/cycling/controller/RaceControllerTest.class
