@@ -16,7 +16,6 @@ import {
   InputLabel,
   Select,
   MenuItem,
-  Grid,
   Typography,
   Toolbar,
   IconButton,
@@ -167,8 +166,8 @@ export const RiderList: React.FC<RiderListProps> = ({
 
         {showFilters && (
           <Box sx={{ p: 2 }}>
-            <Grid container spacing={2}>
-              <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+            <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+              <Box sx={{ flex: '1 1 300px', minWidth: 200 }}>
                 <TextField
                   fullWidth
                   label="Search by Name"
@@ -179,8 +178,8 @@ export const RiderList: React.FC<RiderListProps> = ({
                     startAdornment: <Search sx={{ mr: 1 }} />
                   }}
                 />
-              </Grid>
-              <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+              </Box>
+              <Box sx={{ flex: '1 1 200px', minWidth: 150 }}>
                 <TextField
                   fullWidth
                   label="Team"
@@ -188,8 +187,8 @@ export const RiderList: React.FC<RiderListProps> = ({
                   value={teamFilter}
                   onChange={(e) => setTeamFilter(e.target.value)}
                 />
-              </Grid>
-              <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+              </Box>
+              <Box sx={{ flex: '1 1 200px', minWidth: 150 }}>
                 <TextField
                   fullWidth
                   label="Nationality"
@@ -197,8 +196,8 @@ export const RiderList: React.FC<RiderListProps> = ({
                   value={nationalityFilter}
                   onChange={(e) => setNationalityFilter(e.target.value)}
                 />
-              </Grid>
-              <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+              </Box>
+              <Box sx={{ flex: '1 1 200px', minWidth: 150 }}>
                 <FormControl fullWidth>
                   <InputLabel>Specialization</InputLabel>
                   <Select
@@ -214,8 +213,8 @@ export const RiderList: React.FC<RiderListProps> = ({
                     ))}
                   </Select>
                 </FormControl>
-              </Grid>
-              <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+              </Box>
+              <Box sx={{ flex: '1 1 150px', minWidth: 120 }}>
                 <FormControl fullWidth>
                   <InputLabel>Status</InputLabel>
                   <Select
@@ -228,8 +227,8 @@ export const RiderList: React.FC<RiderListProps> = ({
                     <MenuItem value="false">Inactive</MenuItem>
                   </Select>
                 </FormControl>
-              </Grid>
-            </Grid>
+              </Box>
+            </Box>
           </Box>
         )}
 

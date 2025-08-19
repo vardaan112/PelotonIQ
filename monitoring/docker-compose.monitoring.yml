@@ -1,0 +1,486 @@
+# Docker Compose for PelotonIQ Monitoring Stack
+# Complete monitoring, observability, and alerting infrastructure
+
+version: '3.8'
+
+networks:
+  pelotoniq-monitoring:
+    driver: bridge
+  pelotoniq-main:
+    external: true
+
+volumes:
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+  elasticsearch-data:
+    driver: local
+  jaeger-data:
+    driver: local
+  alertmanager-data:
+    driver: local
+
+services:
+  # Prometheus - Metrics Collection and Storage
+  prometheus:
+    image: prom/prometheus:v2.47.0
+    container_name: pelotoniq-prometheus
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--storage.tsdb.retention.size=50GB'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+      - '--web.enable-admin-api'
+      - '--log.level=info'
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus:/etc/prometheus
+      - prometheus-data:/prometheus
+    networks:
+      - pelotoniq-monitoring
+      - pelotoniq-main
+    environment:
+      - PROMETHEUS_RETENTION_TIME=30d
+      - PROMETHEUS_RETENTION_SIZE=50GB
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Alertmanager - Alert Routing and Notification
+  alertmanager:
+    image: prom/alertmanager:v0.26.0
+    container_name: pelotoniq-alertmanager
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+      - '--web.external-url=http://localhost:9093'
+      - '--log.level=info'
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./monitoring/alertmanager:/etc/alertmanager
+      - alertmanager-data:/alertmanager
+    networks:
+      - pelotoniq-monitoring
+    environment:
+      - SMTP_PASSWORD=${SMTP_PASSWORD}
+      - SLACK_API_URL=${SLACK_API_URL}
+      - PAGERDUTY_ROUTING_KEY=${PAGERDUTY_ROUTING_KEY}
+    depends_on:
+      - prometheus
+
+  # Grafana - Visualization and Dashboards
+  grafana:
+    image: grafana/grafana:10.1.0
+    container_name: pelotoniq-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana-dashboards:/var/lib/grafana/dashboards
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+    networks:
+      - pelotoniq-monitoring
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel,grafana-worldmap-panel,grafana-clock-panel
+      - GF_SERVER_ROOT_URL=https://grafana.pelotoniq.com
+      - GF_SMTP_ENABLED=true
+      - GF_SMTP_HOST=${SMTP_HOST}
+      - GF_SMTP_USER=${SMTP_USER}
+      - GF_SMTP_PASSWORD=${SMTP_PASSWORD}
+      - GF_SMTP_FROM_ADDRESS=grafana@pelotoniq.com
+    depends_on:
+      - prometheus
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Elasticsearch - Log Storage and Search
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.9.0
+    container_name: pelotoniq-elasticsearch
+    restart: unless-stopped
+    environment:
+      - node.name=pelotoniq-es-node
+      - cluster.name=pelotoniq-es-cluster
+      - discovery.type=single-node
+      - bootstrap.memory_lock=true
+      - xpack.security.enabled=false
+      - xpack.security.http.ssl.enabled=false
+      - xpack.security.transport.ssl.enabled=false
+      - "ES_JAVA_OPTS=-Xms2g -Xmx2g"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    networks:
+      - pelotoniq-monitoring
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # Kibana - Log Visualization
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.9.0
+    container_name: pelotoniq-kibana
+    restart: unless-stopped
+    ports:
+      - "5601:5601"
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - SERVER_NAME=kibana.pelotoniq.com
+      - XPACK_SECURITY_ENABLED=false
+    volumes:
+      - ./monitoring/kibana/config:/usr/share/kibana/config
+    networks:
+      - pelotoniq-monitoring
+    depends_on:
+      - elasticsearch
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:5601/api/status || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # Logstash - Log Processing
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.9.0
+    container_name: pelotoniq-logstash
+    restart: unless-stopped
+    volumes:
+      - ./monitoring/elasticsearch/logstash.conf:/usr/share/logstash/pipeline/logstash.conf
+      - ./monitoring/elasticsearch/templates:/usr/share/logstash/templates
+    ports:
+      - "5044:5044"
+      - "5514:5514"
+      - "8080:8080"
+    environment:
+      - "LS_JAVA_OPTS=-Xmx1g -Xms1g"
+      - ELASTICSEARCH_HOSTS=elasticsearch:9200
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+    networks:
+      - pelotoniq-monitoring
+    depends_on:
+      - elasticsearch
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9600 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Jaeger - Distributed Tracing
+  jaeger:
+    image: jaegertracing/all-in-one:1.50
+    container_name: pelotoniq-jaeger
+    restart: unless-stopped
+    ports:
+      - "16686:16686"
+      - "14268:14268"
+      - "14250:14250"
+      - "6831:6831/udp"
+      - "6832:6832/udp"
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+      - SPAN_STORAGE_TYPE=elasticsearch
+      - ES_SERVER_URLS=http://elasticsearch:9200
+      - ES_INDEX_PREFIX=jaeger
+    volumes:
+      - jaeger-data:/tmp
+    networks:
+      - pelotoniq-monitoring
+    depends_on:
+      - elasticsearch
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:16686/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # OpenTelemetry Collector
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.87.0
+    container_name: pelotoniq-otel-collector
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./monitoring/apm/otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml
+    ports:
+      - "4317:4317"   # OTLP gRPC receiver
+      - "4318:4318"   # OTLP HTTP receiver
+      - "8889:8889"   # Prometheus metrics
+      - "13133:13133" # Health check
+    networks:
+      - pelotoniq-monitoring
+    depends_on:
+      - jaeger
+      - prometheus
+
+  # Node Exporter - System Metrics
+  node-exporter:
+    image: prom/node-exporter:v1.6.1
+    container_name: pelotoniq-node-exporter
+    restart: unless-stopped
+    command:
+      - '--path.rootfs=/host'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    ports:
+      - "9100:9100"
+    volumes:
+      - '/:/host:ro,rslave'
+    networks:
+      - pelotoniq-monitoring
+    pid: host
+
+  # cAdvisor - Container Metrics
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.47.0
+    container_name: pelotoniq-cadvisor
+    restart: unless-stopped
+    ports:
+      - "8888:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    devices:
+      - /dev/kmsg
+    networks:
+      - pelotoniq-monitoring
+    privileged: true
+
+  # Postgres Exporter - Database Metrics
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.13.2
+    container_name: pelotoniq-postgres-exporter
+    restart: unless-stopped
+    environment:
+      - DATA_SOURCE_NAME=postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}?sslmode=disable
+    ports:
+      - "9187:9187"
+    networks:
+      - pelotoniq-monitoring
+      - pelotoniq-main
+
+  # Redis Exporter - Cache Metrics
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.53.0
+    container_name: pelotoniq-redis-exporter
+    restart: unless-stopped
+    environment:
+      - REDIS_ADDR=redis://${REDIS_HOST}:${REDIS_PORT}
+    ports:
+      - "9121:9121"
+    networks:
+      - pelotoniq-monitoring
+      - pelotoniq-main
+
+  # Blackbox Exporter - External Monitoring
+  blackbox-exporter:
+    image: prom/blackbox-exporter:v0.24.0
+    container_name: pelotoniq-blackbox-exporter
+    restart: unless-stopped
+    ports:
+      - "9115:9115"
+    volumes:
+      - ./monitoring/blackbox/blackbox.yml:/etc/blackbox_exporter/config.yml
+    networks:
+      - pelotoniq-monitoring
+    command:
+      - '--config.file=/etc/blackbox_exporter/config.yml'
+
+  # Business Metrics Exporter
+  business-metrics-exporter:
+    build:
+      context: .
+      dockerfile: monitoring/business-metrics/Dockerfile
+    container_name: pelotoniq-business-metrics
+    restart: unless-stopped
+    ports:
+      - "8081:8080"
+    environment:
+      - DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}
+      - REDIS_URL=redis://${REDIS_HOST}:${REDIS_PORT}
+      - PROMETHEUS_URL=http://prometheus:9090
+      - NODE_ENV=production
+    networks:
+      - pelotoniq-monitoring
+      - pelotoniq-main
+    depends_on:
+      - prometheus
+    volumes:
+      - ./monitoring/business-metrics:/app
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # AI Model Performance Monitor
+  ai-model-monitor:
+    build:
+      context: .
+      dockerfile: monitoring/ai-model-monitoring/Dockerfile
+    container_name: pelotoniq-ai-monitor
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - DB_HOST=${DB_HOST}
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_PORT=${DB_PORT}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - MONITORING_INTERVAL=300
+      - DRIFT_THRESHOLD=0.05
+      - ACCURACY_THRESHOLD=0.85
+      - ALERT_WEBHOOK_URL=${AI_ALERT_WEBHOOK_URL}
+    networks:
+      - pelotoniq-monitoring
+      - pelotoniq-main
+    depends_on:
+      - prometheus
+    volumes:
+      - ./monitoring/ai-model-monitoring:/app
+      - ./models:/models
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000 || exit 1"]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+
+  # Data Quality Monitor
+  data-quality-monitor:
+    build:
+      context: .
+      dockerfile: monitoring/data-quality/Dockerfile
+    container_name: pelotoniq-data-quality
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    environment:
+      - DB_HOST=${DB_HOST}
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_PORT=${DB_PORT}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - ELASTICSEARCH_URL=http://elasticsearch:9200
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - DATA_QUALITY_WEBHOOK_URL=${DQ_ALERT_WEBHOOK_URL}
+    networks:
+      - pelotoniq-monitoring
+      - pelotoniq-main
+    depends_on:
+      - prometheus
+      - elasticsearch
+    volumes:
+      - ./monitoring/data-quality:/app
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8001/health || exit 1"]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+
+  # Filebeat - Log Shipping
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:8.9.0
+    container_name: pelotoniq-filebeat
+    restart: unless-stopped
+    user: root
+    volumes:
+      - ./monitoring/filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/log:/var/log:ro
+    environment:
+      - ELASTICSEARCH_HOSTS=elasticsearch:9200
+      - LOGSTASH_HOSTS=logstash:5044
+    networks:
+      - pelotoniq-monitoring
+    depends_on:
+      - elasticsearch
+      - logstash
+    command: filebeat -e -strict.perms=false
+
+  # Nginx Reverse Proxy for Monitoring Services
+  monitoring-proxy:
+    image: nginx:1.25-alpine
+    container_name: pelotoniq-monitoring-proxy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./monitoring/nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./monitoring/nginx/ssl:/etc/nginx/ssl
+    networks:
+      - pelotoniq-monitoring
+    depends_on:
+      - grafana
+      - prometheus
+      - kibana
+      - jaeger
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Monitoring Dashboard API
+  monitoring-api:
+    build:
+      context: .
+      dockerfile: monitoring/api/Dockerfile
+    container_name: pelotoniq-monitoring-api
+    restart: unless-stopped
+    ports:
+      - "8082:8080"
+    environment:
+      - PROMETHEUS_URL=http://prometheus:9090
+      - GRAFANA_URL=http://grafana:3000
+      - GRAFANA_API_KEY=${GRAFANA_API_KEY}
+      - ELASTICSEARCH_URL=http://elasticsearch:9200
+      - JAEGER_URL=http://jaeger:16686
+      - DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}
+    networks:
+      - pelotoniq-monitoring
+      - pelotoniq-main
+    depends_on:
+      - prometheus
+      - grafana
+      - elasticsearch
+      - jaeger
+    volumes:
+      - ./monitoring/api:/app
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

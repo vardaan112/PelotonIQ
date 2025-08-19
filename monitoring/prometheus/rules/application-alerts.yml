@@ -1,0 +1,232 @@
+# Application Alert Rules for PelotonIQ
+groups:
+  - name: application.rules
+    interval: 30s
+    rules:
+      # Backend Service Alerts
+      - alert: BackendServiceDown
+        expr: up{job="pelotoniq-backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: backend
+          component: api
+        annotations:
+          summary: "Backend service is down"
+          description: "Backend service {{ $labels.instance }} has been down for more than 1 minute"
+          runbook_url: "https://docs.pelotoniq.com/runbooks/backend-down"
+
+      - alert: BackendHighErrorRate
+        expr: rate(http_requests_total{job="pelotoniq-backend",status=~"5.."}[5m]) / rate(http_requests_total{job="pelotoniq-backend"}[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: critical
+          service: backend
+          component: api
+        annotations:
+          summary: "High error rate on backend service"
+          description: "Backend service error rate is {{ $value | humanizePercentage }} on {{ $labels.instance }}"
+          runbook_url: "https://docs.pelotoniq.com/runbooks/high-error-rate"
+
+      - alert: BackendHighLatency
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job="pelotoniq-backend"}[5m])) > 2
+        for: 5m
+        labels:
+          severity: warning
+          service: backend
+          component: api
+        annotations:
+          summary: "High latency on backend service"
+          description: "Backend 95th percentile latency is {{ $value }}s on {{ $labels.instance }}"
+          runbook_url: "https://docs.pelotoniq.com/runbooks/high-latency"
+
+      - alert: BackendMemoryUsageHigh
+        expr: (container_memory_usage_bytes{pod=~"backend-.*"} / container_spec_memory_limit_bytes{pod=~"backend-.*"}) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          service: backend
+          component: api
+        annotations:
+          summary: "High memory usage on backend service"
+          description: "Backend memory usage is {{ $value | humanizePercentage }} on {{ $labels.pod }}"
+          runbook_url: "https://docs.pelotoniq.com/runbooks/high-memory"
+
+      - alert: BackendCPUUsageHigh
+        expr: rate(container_cpu_usage_seconds_total{pod=~"backend-.*"}[5m]) > 0.8
+        for: 10m
+        labels:
+          severity: warning
+          service: backend
+          component: api
+        annotations:
+          summary: "High CPU usage on backend service"
+          description: "Backend CPU usage is {{ $value | humanizePercentage }} on {{ $labels.pod }}"
+          runbook_url: "https://docs.pelotoniq.com/runbooks/high-cpu"
+
+      # Frontend Service Alerts
+      - alert: FrontendServiceDown
+        expr: up{job="pelotoniq-frontend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: frontend
+          component: ui
+        annotations:
+          summary: "Frontend service is down"
+          description: "Frontend service {{ $labels.instance }} has been down for more than 1 minute"
+          runbook_url: "https://docs.pelotoniq.com/runbooks/frontend-down"
+
+      - alert: FrontendHighErrorRate
+        expr: rate(nginx_http_requests_total{status=~"5.."}[5m]) / rate(nginx_http_requests_total[5m]) > 0.05
+        for: 2m
+        labels:
+          severity: warning
+          service: frontend
+          component: ui
+        annotations:
+          summary: "High error rate on frontend service"
+          description: "Frontend error rate is {{ $value | humanizePercentage }} on {{ $labels.instance }}"
+
+      # Data Processor Alerts
+      - alert: DataProcessorDown
+        expr: up{job="pelotoniq-data-processor"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: data-processor
+          component: etl
+        annotations:
+          summary: "Data processor service is down"
+          description: "Data processor {{ $labels.instance }} has been down for more than 2 minutes"
+          runbook_url: "https://docs.pelotoniq.com/runbooks/data-processor-down"
+
+      - alert: DataProcessingQueueBacklog
+        expr: data_processing_queue_size > 1000
+        for: 5m
+        labels:
+          severity: warning
+          service: data-processor
+          component: etl
+        annotations:
+          summary: "Data processing queue backlog"
+          description: "Data processing queue has {{ $value }} items pending on {{ $labels.instance }}"
+          runbook_url: "https://docs.pelotoniq.com/runbooks/queue-backlog"
+
+      - alert: DataProcessingFailureRate
+        expr: rate(data_processing_failures_total[5m]) / rate(data_processing_total[5m]) > 0.1
+        for: 3m
+        labels:
+          severity: critical
+          service: data-processor
+          component: etl
+        annotations:
+          summary: "High data processing failure rate"
+          description: "Data processing failure rate is {{ $value | humanizePercentage }} on {{ $labels.instance }}"
+
+      # AI Services Alerts
+      - alert: AIServiceDown
+        expr: up{job="pelotoniq-ai-services"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: ai-services
+          component: ml
+        annotations:
+          summary: "AI service is down"
+          description: "AI service {{ $labels.instance }} has been down for more than 2 minutes"
+          runbook_url: "https://docs.pelotoniq.com/runbooks/ai-service-down"
+
+      - alert: ModelInferenceLatencyHigh
+        expr: histogram_quantile(0.95, rate(model_inference_duration_seconds_bucket[5m])) > 5
+        for: 5m
+        labels:
+          severity: warning
+          service: ai-services
+          component: ml
+        annotations:
+          summary: "High model inference latency"
+          description: "Model inference 95th percentile latency is {{ $value }}s for model {{ $labels.model }}"
+
+      - alert: ModelAccuracyDrop
+        expr: model_accuracy < 0.85
+        for: 15m
+        labels:
+          severity: critical
+          service: ai-services
+          component: ml
+          type: business
+        annotations:
+          summary: "Model accuracy below threshold"
+          description: "Model {{ $labels.model }} accuracy dropped to {{ $value | humanizePercentage }}"
+          runbook_url: "https://docs.pelotoniq.com/runbooks/model-accuracy"
+
+      # Application Health Checks
+      - alert: HealthCheckFailing
+        expr: spring_boot_actuator_health_status{status!="UP"} == 1
+        for: 2m
+        labels:
+          severity: critical
+          service: "{{ $labels.service }}"
+          component: health
+        annotations:
+          summary: "Health check failing"
+          description: "Health check {{ $labels.health_check }} is failing on {{ $labels.instance }}"
+
+      # JVM Alerts
+      - alert: JVMMemoryUsageHigh
+        expr: jvm_memory_used_bytes / jvm_memory_max_bytes > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          service: backend
+          component: jvm
+        annotations:
+          summary: "JVM memory usage high"
+          description: "JVM {{ $labels.area }} memory usage is {{ $value | humanizePercentage }} on {{ $labels.instance }}"
+
+      - alert: JVMGCTimeHigh
+        expr: rate(jvm_gc_collection_seconds_sum[5m]) / rate(jvm_gc_collection_seconds_count[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          service: backend
+          component: jvm
+        annotations:
+          summary: "JVM GC time high"
+          description: "JVM GC time is {{ $value }}s on {{ $labels.instance }}"
+
+      # Connection Pool Alerts
+      - alert: DatabaseConnectionPoolExhausted
+        expr: hikaricp_connections_active / hikaricp_connections_max > 0.9
+        for: 2m
+        labels:
+          severity: critical
+          service: backend
+          component: database
+        annotations:
+          summary: "Database connection pool nearly exhausted"
+          description: "Database connection pool usage is {{ $value | humanizePercentage }} on {{ $labels.instance }}"
+
+      # Custom Business Metrics
+      - alert: UserRegistrationRateLow
+        expr: rate(user_registrations_total[1h]) < 5
+        for: 30m
+        labels:
+          severity: warning
+          type: business
+          metric: user_registrations
+        annotations:
+          summary: "Low user registration rate"
+          description: "User registration rate is {{ $value }} per hour, below expected threshold"
+
+      - alert: APIUsageSpike
+        expr: rate(http_requests_total{job="pelotoniq-backend"}[5m]) > 100
+        for: 2m
+        labels:
+          severity: warning
+          service: backend
+          type: business
+        annotations:
+          summary: "API usage spike detected"
+          description: "API request rate is {{ $value }} per second on {{ $labels.instance }}"

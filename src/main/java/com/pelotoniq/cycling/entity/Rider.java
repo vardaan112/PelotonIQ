@@ -76,6 +76,19 @@ public class Rider {
     private Boolean active = true;
 
     // Relationships
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "current_team_id")
+    private Team currentTeam;
+
+    @OneToMany(mappedBy = "rider", fetch = FetchType.LAZY, cascade = CascadeType.ALL)
+    private Set<TeamMembership> teamMemberships = new HashSet<>();
+
+    @OneToMany(mappedBy = "rider", fetch = FetchType.LAZY, cascade = CascadeType.ALL)
+    private Set<StageResult> stageResults = new HashSet<>();
+
+    @OneToMany(mappedBy = "rider", fetch = FetchType.LAZY, cascade = CascadeType.ALL)
+    private Set<StageClassification> classifications = new HashSet<>();
+
     @ManyToMany(fetch = FetchType.LAZY, cascade = {CascadeType.PERSIST, CascadeType.MERGE})
     @JoinTable(
         name = "race_participants",
@@ -221,6 +234,38 @@ public class Rider {
         return version;
     }
 
+    public Team getCurrentTeam() {
+        return currentTeam;
+    }
+
+    public void setCurrentTeam(Team currentTeam) {
+        this.currentTeam = currentTeam;
+    }
+
+    public Set<TeamMembership> getTeamMemberships() {
+        return teamMemberships;
+    }
+
+    public void setTeamMemberships(Set<TeamMembership> teamMemberships) {
+        this.teamMemberships = teamMemberships;
+    }
+
+    public Set<StageResult> getStageResults() {
+        return stageResults;
+    }
+
+    public void setStageResults(Set<StageResult> stageResults) {
+        this.stageResults = stageResults;
+    }
+
+    public Set<StageClassification> getClassifications() {
+        return classifications;
+    }
+
+    public void setClassifications(Set<StageClassification> classifications) {
+        this.classifications = classifications;
+    }
+
     public Set<Race> getRaces() {
         return races;
     }
@@ -243,6 +288,38 @@ public class Rider {
             return ftpWatts / weightKg;
         }
         return null;
+    }
+
+    public String getCurrentTeamName() {
+        return currentTeam != null ? currentTeam.getName() : team;
+    }
+
+    public boolean hasCurrentTeam() {
+        return currentTeam != null;
+    }
+
+    public TeamMembership getCurrentMembership() {
+        return teamMemberships.stream()
+                .filter(tm -> tm.isActive())
+                .findFirst()
+                .orElse(null);
+    }
+
+    public boolean isActiveInTeam(Team team) {
+        return teamMemberships.stream()
+                .anyMatch(tm -> tm.getTeam().equals(team) && tm.isActive());
+    }
+
+    public int getTotalRacesCompleted() {
+        return (int) stageResults.stream()
+                .filter(sr -> sr.isValidFinish())
+                .count();
+    }
+
+    public int getTotalStageWins() {
+        return (int) stageResults.stream()
+                .filter(sr -> sr.getPosition() != null && sr.getPosition() == 1)
+                .count();
     }
 
     // equals and hashCode based on business key (email)

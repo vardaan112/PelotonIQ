@@ -113,7 +113,30 @@ public class Race {
     @Column(name = "registration_deadline")
     private LocalDate registrationDeadline;
 
+    @Column(name = "is_multi_stage", nullable = false)
+    private Boolean isMultiStage = false;
+
+    @Min(value = 1, message = "Total stages must be at least 1")
+    @Max(value = 50, message = "Total stages must not exceed 50")
+    @Column(name = "total_stages")
+    private Integer totalStages;
+
+    @DecimalMin(value = "0.0", message = "Overall distance must be non-negative")
+    @Digits(integer = 6, fraction = 2, message = "Overall distance must have at most 6 integer digits and 2 decimal places")
+    @Column(name = "overall_distance_km", precision = 8, scale = 2)
+    private BigDecimal overallDistanceKm;
+
+    @Min(value = 0, message = "Overall elevation gain must be non-negative")
+    @Column(name = "overall_elevation_gain_m")
+    private Integer overallElevationGainM;
+
     // Relationships
+    @OneToMany(mappedBy = "race", fetch = FetchType.LAZY, cascade = CascadeType.ALL)
+    private Set<Stage> stages = new HashSet<>();
+
+    @ManyToMany(mappedBy = "participatedRaces", fetch = FetchType.LAZY)
+    private Set<Team> participatingTeams = new HashSet<>();
+
     @ManyToMany(mappedBy = "races", fetch = FetchType.LAZY)
     private Set<Rider> participants = new HashSet<>();
 
@@ -300,6 +323,54 @@ public class Race {
         this.registrationDeadline = registrationDeadline;
     }
 
+    public Boolean getIsMultiStage() {
+        return isMultiStage;
+    }
+
+    public void setIsMultiStage(Boolean isMultiStage) {
+        this.isMultiStage = isMultiStage;
+    }
+
+    public Integer getTotalStages() {
+        return totalStages;
+    }
+
+    public void setTotalStages(Integer totalStages) {
+        this.totalStages = totalStages;
+    }
+
+    public BigDecimal getOverallDistanceKm() {
+        return overallDistanceKm;
+    }
+
+    public void setOverallDistanceKm(BigDecimal overallDistanceKm) {
+        this.overallDistanceKm = overallDistanceKm;
+    }
+
+    public Integer getOverallElevationGainM() {
+        return overallElevationGainM;
+    }
+
+    public void setOverallElevationGainM(Integer overallElevationGainM) {
+        this.overallElevationGainM = overallElevationGainM;
+    }
+
+    public Set<Stage> getStages() {
+        return stages;
+    }
+
+    public void setStages(Set<Stage> stages) {
+        this.stages = stages;
+    }
+
+    public Set<Team> getParticipatingTeams() {
+        return participatingTeams;
+    }
+
+    public void setParticipatingTeams(Set<Team> participatingTeams) {
+        this.participatingTeams = participatingTeams;
+    }
+
     public Set<Rider> getParticipants() {
         return participants;
     }
@@ -348,14 +419,50 @@ public class Race {
     }
 
     public Double getDifficultyScore() {
-        if (distanceKm == null) return null;
-        
-        double score = distanceKm.doubleValue();
-        if (elevationGainM != null) {
-            // Add elevation factor (1m elevation ≈ 10m distance in difficulty)
-            score += elevationGainM * 0.01;
+        if (isMultiStage && overallDistanceKm != null) {
+            double score = overallDistanceKm.doubleValue();
+            if (overallElevationGainM != null) {
+                score += overallElevationGainM * 0.01;
+            }
+            return score;
+        } else if (distanceKm != null) {
+            double score = distanceKm.doubleValue();
+            if (elevationGainM != null) {
+                score += elevationGainM * 0.01;
+            }
+            return score;
         }
-        return score;
+        return null;
+    }
+
+    public int getCompletedStages() {
+        return (int) stages.stream().filter(s -> s.isCompleted()).count();
+    }
+
+    public boolean isGrandTour() {
+        return isMultiStage && totalStages != null && totalStages >= 15;
+    }
+
+    public boolean isStageRace() {
+        return isMultiStage && totalStages != null && totalStages > 1;
+    }
+
+    public Stage getCurrentStage() {
+        return stages.stream()
+                .filter(s -> s.getStatus() == StageStatus.RACING || s.getStatus() == StageStatus.NEUTRALIZED)
+                .findFirst()
+                .orElse(null);
+    }
+
+    public Stage getNextStage() {
+        return stages.stream()
+                .filter(s -> s.canStart())
+                .min((s1, s2) -> s1.getStageNumber().compareTo(s2.getStageNumber()))
+                .orElse(null);
+    }
+
+    public int getTeamCount() {
+        return participatingTeams != null ? participatingTeams.size() : 0;
     }
 
     // Helper methods for participant management

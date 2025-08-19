@@ -22,6 +22,7 @@ import {
   Menu as MenuIcon,
   Dashboard as DashboardIcon,
   People,
+  Groups,
   EmojiEvents,
   Timeline,
   BarChart,
@@ -32,7 +33,8 @@ import {
   TeamBuilder, 
   RaceMonitor, 
   PerformanceCharts, 
-  TeamSelection 
+  TeamSelection,
+  TeamManagement 
 } from '../';
 import { Rider, Race, DashboardState } from '../../types';
 
@@ -80,6 +82,16 @@ export const Dashboard: React.FC = () => {
   const navigationItems: NavigationItem[] = [
     {
       id: 'overview',
+      label: 'Teams',
+      icon: <Groups />,
+      component: (
+        <TeamManagement 
+          onTeamSelect={(team) => console.log('Team selected:', team)}
+        />
+      )
+    },
+    {
+      id: 'team-selection',
       label: 'Team Selection',
       icon: <Assignment />,
       component: (
@@ -92,7 +104,7 @@ export const Dashboard: React.FC = () => {
     },
     {
       id: 'riders',
-      label: 'Riders',
+      label: 'All Riders',
       icon: <People />,
       component: (
         <RiderList 

@@ -1,0 +1,408 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: pelotoniq-postgres
+    environment:
+      POSTGRES_DB: pelotoniq
+      POSTGRES_USER: pelotoniq_user
+      POSTGRES_PASSWORD: pelotoniq_secure_password
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d
+      - ./database/backups:/backups
+    ports:
+      - "5432:5432"
+    networks:
+      - pelotoniq-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pelotoniq_user -d pelotoniq"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: pelotoniq-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+      - ./docker/redis/redis.conf:/etc/redis/redis.conf
+    command: redis-server /etc/redis/redis.conf
+    networks:
+      - pelotoniq-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'
+
+  # Spring Boot Backend
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend/Dockerfile
+      target: production
+    container_name: pelotoniq-backend
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/pelotoniq
+      SPRING_DATASOURCE_USERNAME: pelotoniq_user
+      SPRING_DATASOURCE_PASSWORD: pelotoniq_secure_password
+      SPRING_REDIS_HOST: redis
+      SPRING_REDIS_PORT: 6379
+      SERVER_PORT: 8080
+      JAVA_OPTS: "-Xmx1g -Xms512m -XX:+UseG1GC -XX:+UseContainerSupport"
+      MONITORING_ENABLED: "true"
+      ACTUATOR_ENDPOINTS_WEB_EXPOSURE_INCLUDE: "*"
+    ports:
+      - "8080:8080"
+      - "8081:8081"  # Management port
+    volumes:
+      - backend_logs:/app/logs
+      - ./config/backend:/app/config
+    networks:
+      - pelotoniq-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
+    restart: unless-stopped
+
+  # React Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: ../docker/frontend/Dockerfile
+      target: production
+    container_name: pelotoniq-frontend
+    environment:
+      REACT_APP_API_BASE_URL: http://backend:8080/api
+      REACT_APP_ENVIRONMENT: docker
+      NODE_ENV: production
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./docker/nginx/ssl:/etc/nginx/ssl
+      - frontend_logs:/var/log/nginx
+    networks:
+      - pelotoniq-network
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+    restart: unless-stopped
+
+  # Node.js Data Processor
+  data-processor:
+    build:
+      context: ./data-processor
+      dockerfile: ../docker/data-processor/Dockerfile
+      target: production
+    container_name: pelotoniq-data-processor
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://pelotoniq_user:pelotoniq_secure_password@postgres:5432/pelotoniq
+      REDIS_URL: redis://redis:6379
+      MONITORING_ENABLED: "true"
+      MONITORING_PORT: 3001
+      PCS_BASE_URL: https://www.procyclingstats.com
+      RATE_LIMIT_REQUESTS_PER_MINUTE: 30
+      REQUEST_TIMEOUT_MS: 30000
+      RETRY_ATTEMPTS: 3
+      LOG_LEVEL: info
+    ports:
+      - "3001:3001"  # Monitoring dashboard
+    volumes:
+      - data_processor_logs:/app/logs
+      - scraped_data:/app/data
+      - ai_models:/app/models
+      - ./config/data-processor:/app/config
+    networks:
+      - pelotoniq-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 45s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.75'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
+    restart: unless-stopped
+
+  # Python AI Services
+  ai-services:
+    build:
+      context: ./ai-services
+      dockerfile: ../docker/ai-services/Dockerfile
+      target: production
+    container_name: pelotoniq-ai-services
+    environment:
+      PYTHON_ENV: production
+      DATABASE_URL: postgresql://pelotoniq_user:pelotoniq_secure_password@postgres:5432/pelotoniq
+      REDIS_URL: redis://redis:6379
+      TENSORFLOW_SERVING_URL: http://tensorflow-serving:8501
+      MODEL_STORAGE_PATH: /app/models
+      PREDICTIONS_CACHE_TTL: 3600
+      LOG_LEVEL: INFO
+    ports:
+      - "5000:5000"  # API port
+      - "5001:5001"  # Metrics port
+    volumes:
+      - ai_models:/app/models
+      - ai_training_data:/app/training_data
+      - ai_logs:/app/logs
+      - ./config/ai-services:/app/config
+    networks:
+      - pelotoniq-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      data-processor:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+        reservations:
+          memory: 2G
+          cpus: '1.0'
+    restart: unless-stopped
+
+  # TensorFlow Serving
+  tensorflow-serving:
+    image: tensorflow/serving:latest
+    container_name: pelotoniq-tensorflow-serving
+    environment:
+      MODEL_BASE_PATH: /models
+      MODEL_NAME: pelotoniq_cycling_model
+    ports:
+      - "8501:8501"  # REST API
+      - "8500:8500"  # gRPC API
+    volumes:
+      - ai_models:/models
+      - tf_serving_logs:/var/log
+    networks:
+      - pelotoniq-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/v1/models/pelotoniq_cycling_model/metadata"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+    restart: unless-stopped
+
+  # Monitoring Stack - Prometheus
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: pelotoniq-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./monitoring/prometheus/rules:/etc/prometheus/rules
+      - prometheus_data:/prometheus
+    networks:
+      - pelotoniq-network
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+    restart: unless-stopped
+
+  # Monitoring Stack - Grafana
+  grafana:
+    image: grafana/grafana:latest
+    container_name: pelotoniq-grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin_secure_password
+      GF_INSTALL_PLUGINS: grafana-piechart-panel,grafana-worldmap-panel
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+    networks:
+      - pelotoniq-network
+    depends_on:
+      - prometheus
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.25'
+    restart: unless-stopped
+
+  # Log Management - ELK Stack
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    container_name: pelotoniq-elasticsearch
+    environment:
+      discovery.type: single-node
+      ES_JAVA_OPTS: "-Xmx1g -Xms1g"
+      xpack.security.enabled: "false"
+    ports:
+      - "9200:9200"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    networks:
+      - pelotoniq-network
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+    restart: unless-stopped
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.11.0
+    container_name: pelotoniq-logstash
+    volumes:
+      - ./monitoring/logstash/pipeline:/usr/share/logstash/pipeline
+      - ./monitoring/logstash/config/logstash.yml:/usr/share/logstash/config/logstash.yml
+      - backend_logs:/var/log/backend
+      - frontend_logs:/var/log/frontend
+      - data_processor_logs:/var/log/data-processor
+      - ai_logs:/var/log/ai-services
+    networks:
+      - pelotoniq-network
+    depends_on:
+      - elasticsearch
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+    restart: unless-stopped
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.11.0
+    container_name: pelotoniq-kibana
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+    networks:
+      - pelotoniq-network
+    depends_on:
+      - elasticsearch
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+    restart: unless-stopped
+
+networks:
+  pelotoniq-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  backend_logs:
+    driver: local
+  frontend_logs:
+    driver: local
+  data_processor_logs:
+    driver: local
+  ai_logs:
+    driver: local
+  ai_models:
+    driver: local
+  ai_training_data:
+    driver: local
+  scraped_data:
+    driver: local
+  tf_serving_logs:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+  elasticsearch_data:
+    driver: local

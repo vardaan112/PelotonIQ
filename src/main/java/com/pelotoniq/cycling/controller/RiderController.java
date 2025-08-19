@@ -21,6 +21,7 @@ import java.util.Optional;
 @RestController
 @RequestMapping("/riders")
 @Validated
+@CrossOrigin(origins = {"http://localhost:3000", "http://localhost:3001"})
 public class RiderController {
 
     @Autowired
@@ -216,13 +217,26 @@ public class RiderController {
     }
 
     @PostMapping
-    public ResponseEntity<Rider> createRider(@Valid @RequestBody Rider rider) {
-        if (riderRepository.existsByEmail(rider.getEmail())) {
-            return ResponseEntity.status(HttpStatus.CONFLICT).build();
+    public ResponseEntity<?> createRider(@Valid @RequestBody Rider rider) {
+        try {
+            // Check if rider email already exists (if provided)
+            if (rider.getEmail() != null && riderRepository.existsByEmail(rider.getEmail())) {
+                return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body("Rider with email '" + rider.getEmail() + "' already exists");
+            }
+            
+            // Set default values if not provided
+            if (rider.getActive() == null) {
+                rider.setActive(true);
+            }
+            
+            Rider savedRider = riderRepository.save(rider);
+            return ResponseEntity.status(HttpStatus.CREATED).body(savedRider);
+            
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body("Error creating rider: " + e.getMessage());
         }
-        
-        Rider savedRider = riderRepository.save(rider);
-        return ResponseEntity.status(HttpStatus.CREATED).body(savedRider);
     }
 
     @PutMapping("/{id}")

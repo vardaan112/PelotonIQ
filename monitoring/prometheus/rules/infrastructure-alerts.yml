@@ -1,0 +1,286 @@
+# Infrastructure Alert Rules for PelotonIQ
+groups:
+  - name: infrastructure.rules
+    interval: 30s
+    rules:
+      # Node/Cluster Alerts
+      - alert: NodeDown
+        expr: up{job="node-exporter"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: infrastructure
+          service: node
+        annotations:
+          summary: "Node is down"
+          description: "Node {{ $labels.instance }} has been down for more than 1 minute"
+          runbook_url: "https://docs.pelotoniq.com/runbooks/node-down"
+
+      - alert: NodeHighCPUUsage
+        expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 10m
+        labels:
+          severity: warning
+          component: infrastructure
+          service: node
+        annotations:
+          summary: "High CPU usage on node"
+          description: "Node {{ $labels.instance }} CPU usage is {{ $value }}%"
+          runbook_url: "https://docs.pelotoniq.com/runbooks/high-cpu"
+
+      - alert: NodeHighMemoryUsage
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+          component: infrastructure
+          service: node
+        annotations:
+          summary: "High memory usage on node"
+          description: "Node {{ $labels.instance }} memory usage is {{ $value }}%"
+          runbook_url: "https://docs.pelotoniq.com/runbooks/high-memory"
+
+      - alert: NodeDiskSpaceLow
+        expr: (1 - (node_filesystem_avail_bytes{fstype!="tmpfs"} / node_filesystem_size_bytes{fstype!="tmpfs"})) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+          component: infrastructure
+          service: node
+        annotations:
+          summary: "Low disk space on node"
+          description: "Node {{ $labels.instance }} disk usage is {{ $value }}% on {{ $labels.mountpoint }}"
+          runbook_url: "https://docs.pelotoniq.com/runbooks/low-disk-space"
+
+      - alert: NodeDiskSpaceCritical
+        expr: (1 - (node_filesystem_avail_bytes{fstype!="tmpfs"} / node_filesystem_size_bytes{fstype!="tmpfs"})) * 100 > 95
+        for: 1m
+        labels:
+          severity: critical
+          component: infrastructure
+          service: node
+        annotations:
+          summary: "Critical disk space on node"
+          description: "Node {{ $labels.instance }} disk usage is {{ $value }}% on {{ $labels.mountpoint }}"
+          runbook_url: "https://docs.pelotoniq.com/runbooks/critical-disk-space"
+
+      # Kubernetes Cluster Alerts
+      - alert: KubernetesNodeNotReady
+        expr: kube_node_status_condition{condition="Ready",status="true"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          component: infrastructure
+          service: kubernetes
+        annotations:
+          summary: "Kubernetes node not ready"
+          description: "Kubernetes node {{ $labels.node }} is not ready"
+          runbook_url: "https://docs.pelotoniq.com/runbooks/k8s-node-not-ready"
+
+      - alert: KubernetesPodCrashLooping
+        expr: rate(kube_pod_container_status_restarts_total[15m]) > 0
+        for: 5m
+        labels:
+          severity: critical
+          component: infrastructure
+          service: kubernetes
+        annotations:
+          summary: "Pod is crash looping"
+          description: "Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} is crash looping"
+          runbook_url: "https://docs.pelotoniq.com/runbooks/pod-crash-loop"
+
+      - alert: KubernetesPodNotRunning
+        expr: kube_pod_status_phase{phase!="Running",phase!="Succeeded"} == 1
+        for: 10m
+        labels:
+          severity: warning
+          component: infrastructure
+          service: kubernetes
+        annotations:
+          summary: "Pod not running"
+          description: "Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} is in {{ $labels.phase }} state"
+
+      - alert: KubernetesDeploymentReplicasMismatch
+        expr: kube_deployment_spec_replicas != kube_deployment_status_available_replicas
+        for: 5m
+        labels:
+          severity: warning
+          component: infrastructure
+          service: kubernetes
+        annotations:
+          summary: "Deployment replicas mismatch"
+          description: "Deployment {{ $labels.deployment }} has {{ $labels.spec_replicas }} desired but {{ $labels.available_replicas }} available replicas"
+
+      - alert: KubernetesNodeMemoryPressure
+        expr: kube_node_status_condition{condition="MemoryPressure",status="true"} == 1
+        for: 2m
+        labels:
+          severity: warning
+          component: infrastructure
+          service: kubernetes
+        annotations:
+          summary: "Node under memory pressure"
+          description: "Node {{ $labels.node }} is under memory pressure"
+          runbook_url: "https://docs.pelotoniq.com/runbooks/memory-pressure"
+
+      - alert: KubernetesNodeDiskPressure
+        expr: kube_node_status_condition{condition="DiskPressure",status="true"} == 1
+        for: 2m
+        labels:
+          severity: warning
+          component: infrastructure
+          service: kubernetes
+        annotations:
+          summary: "Node under disk pressure"
+          description: "Node {{ $labels.node }} is under disk pressure"
+          runbook_url: "https://docs.pelotoniq.com/runbooks/disk-pressure"
+
+      # Database Infrastructure Alerts
+      - alert: PostgreSQLDown
+        expr: up{job="postgres-exporter"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: infrastructure
+          service: database
+        annotations:
+          summary: "PostgreSQL is down"
+          description: "PostgreSQL instance {{ $labels.instance }} is down"
+          runbook_url: "https://docs.pelotoniq.com/runbooks/postgres-down"
+
+      - alert: PostgreSQLTooManyConnections
+        expr: pg_stat_database_numbackends / pg_settings_max_connections > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          component: infrastructure
+          service: database
+        annotations:
+          summary: "PostgreSQL too many connections"
+          description: "PostgreSQL has {{ $value | humanizePercentage }} connections used"
+
+      - alert: PostgreSQLSlowQueries
+        expr: pg_stat_activity_max_tx_duration > 300
+        for: 2m
+        labels:
+          severity: warning
+          component: infrastructure
+          service: database
+        annotations:
+          summary: "PostgreSQL slow queries detected"
+          description: "PostgreSQL has queries running for more than {{ $value }}s"
+
+      - alert: PostgreSQLReplicationLag
+        expr: pg_replication_lag > 60
+        for: 5m
+        labels:
+          severity: warning
+          component: infrastructure
+          service: database
+        annotations:
+          summary: "PostgreSQL replication lag"
+          description: "PostgreSQL replication lag is {{ $value }}s"
+
+      # Redis Infrastructure Alerts
+      - alert: RedisDown
+        expr: up{job="redis-exporter"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: infrastructure
+          service: cache
+        annotations:
+          summary: "Redis is down"
+          description: "Redis instance {{ $labels.instance }} is down"
+          runbook_url: "https://docs.pelotoniq.com/runbooks/redis-down"
+
+      - alert: RedisMemoryUsageHigh
+        expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          component: infrastructure
+          service: cache
+        annotations:
+          summary: "Redis memory usage high"
+          description: "Redis memory usage is {{ $value | humanizePercentage }} on {{ $labels.instance }}"
+
+      - alert: RedisConnectionsHigh
+        expr: redis_connected_clients / redis_config_maxclients > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          component: infrastructure
+          service: cache
+        annotations:
+          summary: "Redis connections high"
+          description: "Redis has {{ $value | humanizePercentage }} connections used on {{ $labels.instance }}"
+
+      # Load Balancer Alerts
+      - alert: LoadBalancerTargetDown
+        expr: up{job="aws-alb"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: infrastructure
+          service: loadbalancer
+        annotations:
+          summary: "Load balancer target is down"
+          description: "Load balancer target {{ $labels.target }} is down"
+
+      - alert: LoadBalancerHighLatency
+        expr: aws_alb_target_response_time_average > 2
+        for: 5m
+        labels:
+          severity: warning
+          component: infrastructure
+          service: loadbalancer
+        annotations:
+          summary: "Load balancer high latency"
+          description: "Load balancer target response time is {{ $value }}s"
+
+      # Network Alerts
+      - alert: NetworkReceiveErrors
+        expr: rate(node_network_receive_errs_total[5m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+          component: infrastructure
+          service: network
+        annotations:
+          summary: "Network receive errors"
+          description: "Network interface {{ $labels.device }} on {{ $labels.instance }} has {{ $value }} receive errors per second"
+
+      - alert: NetworkTransmitErrors
+        expr: rate(node_network_transmit_errs_total[5m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+          component: infrastructure
+          service: network
+        annotations:
+          summary: "Network transmit errors"
+          description: "Network interface {{ $labels.device }} on {{ $labels.instance }} has {{ $value }} transmit errors per second"
+
+      # SSL Certificate Alerts
+      - alert: SSLCertificateExpiringSoon
+        expr: probe_ssl_earliest_cert_expiry - time() < 604800
+        for: 1h
+        labels:
+          severity: warning
+          component: infrastructure
+          service: ssl
+        annotations:
+          summary: "SSL certificate expiring soon"
+          description: "SSL certificate for {{ $labels.instance }} expires in {{ $value | humanizeDuration }}"
+
+      - alert: SSLCertificateExpired
+        expr: probe_ssl_earliest_cert_expiry - time() < 0
+        for: 0s
+        labels:
+          severity: critical
+          component: infrastructure
+          service: ssl
+        annotations:
+          summary: "SSL certificate expired"
+          description: "SSL certificate for {{ $labels.instance }} has expired"

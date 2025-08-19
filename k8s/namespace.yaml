@@ -1,0 +1,51 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: pelotoniq
+  labels:
+    name: pelotoniq
+    environment: production
+    app.kubernetes.io/name: pelotoniq
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: kubernetes
+  annotations:
+    description: "PelotonIQ AI-Powered Cycling Team Strategy Platform"
+    contact: "admin@pelotoniq.com"
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: pelotoniq-limits
+  namespace: pelotoniq
+spec:
+  limits:
+  - default:
+      cpu: "1000m"
+      memory: "1Gi"
+    defaultRequest:
+      cpu: "100m"
+      memory: "128Mi"
+    type: Container
+  - max:
+      cpu: "4000m"
+      memory: "8Gi"
+    min:
+      cpu: "50m"
+      memory: "64Mi"
+    type: Container
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: pelotoniq-quota
+  namespace: pelotoniq
+spec:
+  hard:
+    requests.cpu: "10"
+    requests.memory: 20Gi
+    limits.cpu: "20"
+    limits.memory: 40Gi
+    persistentvolumeclaims: "10"
+    services: "10"
+    secrets: "10"
+    configmaps: "10"

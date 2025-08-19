@@ -1,0 +1,216 @@
+# Alertmanager Configuration for PelotonIQ
+global:
+  smtp_smarthost: 'localhost:587'
+  smtp_from: 'alerts@pelotoniq.com'
+  smtp_auth_username: 'alerts@pelotoniq.com'
+  smtp_auth_password: '${SMTP_PASSWORD}'
+  
+  # Slack configuration
+  slack_api_url: '${SLACK_API_URL}'
+
+# Templates for alert formatting
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'
+
+# Alert routing rules
+route:
+  group_by: ['alertname', 'cluster', 'service']
+  group_wait: 10s
+  group_interval: 10s
+  repeat_interval: 12h
+  receiver: 'default'
+  
+  routes:
+    # Critical alerts go to PagerDuty and Slack
+    - match:
+        severity: critical
+      receiver: 'critical-alerts'
+      group_wait: 0s
+      repeat_interval: 5m
+      
+    # Database alerts
+    - match:
+        service: database
+      receiver: 'database-team'
+      
+    # AI/ML alerts
+    - match:
+        service: ai-services
+      receiver: 'ml-team'
+      
+    # Infrastructure alerts
+    - match:
+        component: infrastructure
+      receiver: 'devops-team'
+      
+    # Business metrics alerts
+    - match:
+        type: business
+      receiver: 'business-team'
+
+# Alert receivers
+receivers:
+  - name: 'default'
+    slack_configs:
+      - api_url: '${SLACK_API_URL}'
+        channel: '#alerts'
+        title: 'PelotonIQ Alert'
+        text: >-
+          {{ range .Alerts }}
+          *Alert:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          *Severity:* {{ .Labels.severity }}
+          *Service:* {{ .Labels.service }}
+          {{ end }}
+        send_resolved: true
+
+  - name: 'critical-alerts'
+    pagerduty_configs:
+      - routing_key: '${PAGERDUTY_ROUTING_KEY}'
+        description: '{{ .GroupLabels.alertname }} - {{ .GroupLabels.service }}'
+        details:
+          summary: '{{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+          severity: '{{ range .Alerts }}{{ .Labels.severity }}{{ end }}'
+          cluster: '{{ range .Alerts }}{{ .Labels.cluster }}{{ end }}'
+    slack_configs:
+      - api_url: '${SLACK_API_URL}'
+        channel: '#critical-alerts'
+        title: '🚨 CRITICAL ALERT 🚨'
+        text: >-
+          <!channel>
+          {{ range .Alerts }}
+          *Alert:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          *Severity:* {{ .Labels.severity }}
+          *Service:* {{ .Labels.service }}
+          *Runbook:* {{ .Annotations.runbook_url }}
+          {{ end }}
+        send_resolved: true
+        color: 'danger'
+
+  - name: 'database-team'
+    email_configs:
+      - to: 'database-team@pelotoniq.com'
+        subject: 'Database Alert: {{ .GroupLabels.alertname }}'
+        body: |
+          Database alert detected:
+          
+          {{ range .Alerts }}
+          Alert: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          Instance: {{ .Labels.instance }}
+          Severity: {{ .Labels.severity }}
+          {{ end }}
+    slack_configs:
+      - api_url: '${SLACK_API_URL}'
+        channel: '#database-alerts'
+        title: 'Database Alert'
+        text: >-
+          {{ range .Alerts }}
+          *Alert:* {{ .Annotations.summary }}
+          *Instance:* {{ .Labels.instance }}
+          *Description:* {{ .Annotations.description }}
+          {{ end }}
+
+  - name: 'ml-team'
+    email_configs:
+      - to: 'ml-team@pelotoniq.com'
+        subject: 'AI/ML Alert: {{ .GroupLabels.alertname }}'
+        body: |
+          AI/ML service alert:
+          
+          {{ range .Alerts }}
+          Alert: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          Model: {{ .Labels.model }}
+          Service: {{ .Labels.service }}
+          {{ end }}
+    slack_configs:
+      - api_url: '${SLACK_API_URL}'
+        channel: '#ml-alerts'
+        title: 'AI/ML Alert'
+        text: >-
+          {{ range .Alerts }}
+          *Alert:* {{ .Annotations.summary }}
+          *Model:* {{ .Labels.model }}
+          *Description:* {{ .Annotations.description }}
+          {{ end }}
+
+  - name: 'devops-team'
+    email_configs:
+      - to: 'devops@pelotoniq.com'
+        subject: 'Infrastructure Alert: {{ .GroupLabels.alertname }}'
+        body: |
+          Infrastructure alert:
+          
+          {{ range .Alerts }}
+          Alert: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          Node: {{ .Labels.instance }}
+          Cluster: {{ .Labels.cluster }}
+          {{ end }}
+    slack_configs:
+      - api_url: '${SLACK_API_URL}'
+        channel: '#devops-alerts'
+        title: 'Infrastructure Alert'
+        text: >-
+          {{ range .Alerts }}
+          *Alert:* {{ .Annotations.summary }}
+          *Node:* {{ .Labels.instance }}
+          *Description:* {{ .Annotations.description }}
+          {{ end }}
+
+  - name: 'business-team'
+    email_configs:
+      - to: 'business@pelotoniq.com'
+        subject: 'Business Metrics Alert: {{ .GroupLabels.alertname }}'
+        body: |
+          Business metrics alert:
+          
+          {{ range .Alerts }}
+          Alert: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          Metric: {{ .Labels.metric }}
+          Value: {{ .Labels.value }}
+          {{ end }}
+    slack_configs:
+      - api_url: '${SLACK_API_URL}'
+        channel: '#business-alerts'
+        title: 'Business Metrics Alert'
+        text: >-
+          {{ range .Alerts }}
+          *Alert:* {{ .Annotations.summary }}
+          *Metric:* {{ .Labels.metric }}
+          *Current Value:* {{ .Labels.value }}
+          *Description:* {{ .Annotations.description }}
+          {{ end }}
+
+# Inhibition rules to reduce noise
+inhibit_rules:
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname', 'instance']
+    
+  - source_match:
+      alertname: 'NodeDown'
+    target_match_re:
+      alertname: 'Node.*'
+    equal: ['instance']
+
+# Mute/silence configuration
+mute_time_intervals:
+  - name: maintenance-window
+    time_intervals:
+      - times:
+          - start_time: '02:00'
+            end_time: '04:00'
+        weekdays: ['sunday']
+        
+  - name: business-hours
+    time_intervals:
+      - times:
+          - start_time: '09:00'
+            end_time: '17:00'
+        weekdays: ['monday:friday']

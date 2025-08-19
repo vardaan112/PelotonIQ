@@ -31,6 +31,15 @@ class ApiClient {
         return response;
       },
       (error) => {
+        console.error('API Error Details:', {
+          message: error.message,
+          status: error.response?.status,
+          statusText: error.response?.statusText,
+          data: error.response?.data,
+          url: error.config?.url,
+          method: error.config?.method,
+        });
+        
         const apiError: ApiError = {
           message: error.response?.data?.message || error.message || 'An unknown error occurred',
           status: error.response?.status || 0,
